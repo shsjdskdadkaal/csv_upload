@@ -1,183 +1,221 @@
+#%%
 import streamlit as st
 import pandas as pd
+import numpy as np
 
-# ---------- PAGE CONFIG ----------
-st.set_page_config(page_title="Indofast Battery Dashboard", layout="wide")
 
-# ---------- CUSTOM THEME ----------
-st.markdown("""
-<style>
-body {
-    background-color: #0a0a0a;
-    color: white;
+st.set_page_config(page_title="Battery City Screener", layout="wide")
+
+st.title("🔋 Battery City Mismatch Screener")
+
+# ==========================================================
+# CITY CENTERS
+# ==========================================================
+city_centers = {
+    "Ghaziabad": (28.6692, 77.4538),
+    "Delhi": (28.6139, 77.2090),
+    "Gurugram": (28.4595, 77.0266),
+    "Jaipur": (26.9124, 75.7873),
+    "Noida": (28.5355, 77.3910),
+    "Bengaluru": (12.9716, 77.5946),
+    "Faridabad": (28.4089, 77.3178),
+    "Sonipat": (28.9931, 77.0151),
+    "Panipat": (29.3909, 76.9635),
+    "Vijayawada": (16.5062, 80.6480),
+    "Mumbai": (19.0760, 72.8777),
+    "Hyderabad": (17.3850, 78.4867),
+    "Chandigarh": (30.7333, 76.7794),
+    "Kochi": (9.9312, 76.2673),
+    "Calicut": (11.2588, 75.7804),
+    "Agra": (27.1767, 78.0081),
+    "Pune": (18.5204, 73.8567),
+    "Trivandrum": (8.5241, 76.9366),
+    "Panchkula": (30.6942, 76.8606),
+    "Chennai": (13.0827, 80.2707),
+    "Mohali": (30.7046, 76.7179)
 }
-.stApp {
-    background-color: #0a0a0a;
+
+# ==========================================================
+# CITY CLUSTERS
+# ==========================================================
+city_cluster = {
+
+    "delhi": "ncr",
+    "noida": "ncr",
+    "ghaziabad": "ncr",
+    "gurugram": "ncr",
+    "faridabad": "ncr",
+    "sonipat": "ncr",
+    "panipat": "ncr",
+
+    "chandigarh": "tricity",
+    "mohali": "tricity",
+    "panchkula": "tricity",
+
+    "bengaluru": "bengaluru",
+    "jaipur": "jaipur",
+    "hyderabad": "hyderabad",
+    "mumbai": "mumbai",
+    "pune": "pune",
+    "chennai": "chennai",
+    "agra": "agra",
+    "vijayawada": "vijayawada",
+    "kochi": "kochi",
+    "calicut": "calicut",
+    "trivandrum": "trivandrum"
 }
-h1, h2, h3 {
-    color: #d4ff00;
-}
-.stButton>button {
-    background-color: #d4ff00;
-    color: black;
-    border-radius: 8px;
-}
-.stDownloadButton>button {
-    background-color: #d4ff00;
-    color: black;
-    border-radius: 8px;
-}
-.css-1d391kg, .css-1v0mbdj {
-    background-color: #111111;
-}
-</style>
-""", unsafe_allow_html=True)
 
-# ---------- TITLE ----------
-st.markdown("## ⚡ INDOFAST ENERGY - Battery Dashboard")
 
-# ---------- HELPERS ----------
-def load_file(file):
-    if file.name.endswith(('xls', 'xlsx')):
-        return pd.read_excel(file)
-    return pd.read_csv(file)
+def haversine(lat1, lon1, lat2, lon2):
 
-def clean_columns(df):
-    df.columns = df.columns.str.strip()
-    return df
+    R = 6371
 
-# ---------- SIDEBAR ----------
-st.sidebar.header("⚙️ Controls")
+    lat1, lon1, lat2, lon2 = map(
+        np.radians,
+        [lat1, lon1, lat2, lon2]
+    )
 
-file1 = st.sidebar.file_uploader("Upload AMD File (Required)", type=["xls", "xlsx", "csv"])
-file2 = st.sidebar.file_uploader("Upload BP Alert File (Optional)", type=["xls", "xlsx", "csv"])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
 
-if not file1:
-    st.info("👈 Upload AMD file to start")
-    st.stop()
+    a = (
+        np.sin(dlat / 2) ** 2
+        + np.cos(lat1)
+        * np.cos(lat2)
+        * np.sin(dlon / 2) ** 2
+    )
 
-df_amd = clean_columns(load_file(file1))
+    c = 2 * np.arcsin(np.sqrt(a))
 
-# ---------- SERIAL FILTER ----------
-st.sidebar.subheader("🔎 Battery Filter")
+    return R * c
 
-if 'BP Serial Number' not in df_amd.columns:
-    st.error("Missing 'BP Serial Number'")
-    st.stop()
 
-manual_input = st.sidebar.text_area(
-    "Enter Battery Serials",
-    placeholder="ABC123, XYZ456"
+def nearest_city(lat, lon):
+
+    min_distance = float("inf")
+    best_city = None
+
+    for city, (city_lat, city_lon) in city_centers.items():
+
+        distance = haversine(
+            lat,
+            lon,
+            city_lat,
+            city_lon
+        )
+
+        if distance < min_distance:
+            min_distance = distance
+            best_city = city
+
+    return best_city
+
+
+uploaded_file = st.file_uploader(
+    "Upload AMD File",
+    type=["csv"]
 )
 
-if manual_input:
-    serial_list = [x.strip() for x in manual_input.replace('\n', ',').split(',') if x.strip()]
-    df_amd = df_amd[df_amd['BP Serial Number'].isin(serial_list)]
+if uploaded_file:
 
-# ---------- ADVANCED FILTERS ----------
-st.sidebar.subheader("📊 Advanced Filters")
+    df = pd.read_csv(uploaded_file)
 
-filter_columns = st.sidebar.multiselect("Select Columns", df_amd.columns)
+    df = df[
+        [
+            'BP Serial Number',
+            'Zone Name',
+            'Last Latitude',
+            'Last Longitude'
+        ]
+    ]
 
-for col in filter_columns:
-    unique_vals = df_amd[col].dropna().unique()
+    # Invalid coordinates
+    df['invalid_coordinate'] = (
+        (df['Last Latitude'] < 6)
+        | (df['Last Latitude'] > 38)
+        | (df['Last Longitude'] < 68)
+        | (df['Last Longitude'] > 98)
+    )
 
-    if len(unique_vals) > 50:
-        val = st.sidebar.text_input(f"{col} contains")
-        if val:
-            df_amd = df_amd[df_amd[col].astype(str).str.contains(val, case=False, na=False)]
-    else:
-        val = st.sidebar.multiselect(f"{col}", unique_vals)
-        if val:
-            df_amd = df_amd[df_amd[col].isin(val)]
+    invalid_df = df[df['invalid_coordinate']].copy()
 
-# ---------- COLUMN SELECTION ----------
-default_cols = [
-    'BP Serial Number',
-    'Zone Subzone Type',
-    'Latest Transaction Date',
-    'BP Last Seen In_Vehicle_VIN',
-    'BP Last Seen In_Vehicle_Registration Number',
-    'BP Last Seen In_Vehicle _Vehicle Type',
-    'BP Last Seen In_Vehicle_Business Type',
-    'BP Last Seen In_Vehicle_Customer Name'
-]
+    valid_df = df[~df['invalid_coordinate']].copy()
 
-selected_cols = st.sidebar.multiselect(
-    "📌 Select Columns",
-    options=df_amd.columns,
-    default=[col for col in default_cols if col in df_amd.columns]
-)
+    unique_coords = (
+        valid_df[
+            ['Last Latitude', 'Last Longitude']
+        ]
+        .drop_duplicates()
+    )
 
-if selected_cols:
-    df_amd = df_amd[selected_cols]
+    unique_coords['actual_city'] = unique_coords.apply(
+        lambda x: nearest_city(
+            x['Last Latitude'],
+            x['Last Longitude']
+        ),
+        axis=1
+    )
 
-# ---------- MATCHING ----------
-if file2:
-    df_bp = clean_columns(load_file(file2))
+    valid_df = valid_df.merge(
+        unique_coords,
+        on=['Last Latitude', 'Last Longitude'],
+        how='left'
+    )
 
-    if 'BatterySerialNumber' not in df_bp.columns:
-        st.error("Missing BatterySerialNumber in BP file")
-        st.stop()
+    valid_df['Zone Name'] = (
+        valid_df['Zone Name']
+        .str.lower()
+        .str.strip()
+    )
 
-    df_final = df_amd[df_amd['BP Serial Number'].isin(df_bp['BatterySerialNumber'])]
-    mode = "🔗 Matched with BP Alerts"
-else:
-    df_final = df_amd
-    mode = "📄 AMD Only Mode"
+    valid_df['actual_city'] = (
+        valid_df['actual_city']
+        .str.lower()
+        .str.strip()
+    )
 
-df_final = df_final.drop_duplicates()
+    valid_df['zone_cluster'] = (
+        valid_df['Zone Name']
+        .map(city_cluster)
+    )
 
-# ---------- KPIs ----------
-st.markdown("### 📈 Key Metrics")
+    valid_df['actual_cluster'] = (
+        valid_df['actual_city']
+        .map(city_cluster)
+    )
 
-col1, col2, col3 = st.columns(3)
+    valid_df['city_mismatch'] = (
+        valid_df['zone_cluster']
+        != valid_df['actual_cluster']
+    )
 
-col1.metric("Total Records", len(df_amd))
-col2.metric("Final Records", len(df_final))
-col3.metric("Unique Batteries", df_final['BP Serial Number'].nunique())
+    risk_df = valid_df[
+        valid_df['city_mismatch']
+    ].copy()
 
-st.caption(mode)
+    # KPIs
+    c1, c2, c3 = st.columns(3)
 
-# ---------- COLUMN FILTERS ----------
-st.markdown("### 🧩 Column Filters")
+    c1.metric("Total Batteries", len(df))
+    c2.metric("Invalid Coordinates", len(invalid_df))
+    c3.metric("City Mismatches", len(risk_df))
 
-with st.expander("Apply Excel-style filters"):
-    filter_df = df_final.copy()
-    cols = st.columns(len(filter_df.columns))
+    st.subheader("City Mismatch Batteries")
+    st.dataframe(risk_df)
 
-    for i, col in enumerate(filter_df.columns):
-        unique_vals = filter_df[col].dropna().unique()
+    st.subheader("Invalid Coordinates")
+    st.dataframe(invalid_df)
 
-        with cols[i]:
-            if len(unique_vals) <= 20:
-                selected = st.multiselect(col, unique_vals)
-                if selected:
-                    filter_df = filter_df[filter_df[col].isin(selected)]
-            else:
-                search = st.text_input(col, key=col)
-                if search:
-                    filter_df = filter_df[
-                        filter_df[col].astype(str).str.contains(search, case=False, na=False)
-                    ]
+    st.download_button(
+        "Download City Mismatch CSV",
+        risk_df.to_csv(index=False),
+        "battery_city_mismatch.csv",
+        "text/csv"
+    )
 
-    df_final = filter_df
-
-# ---------- DATA TABLE ----------
-st.markdown("### 📋 Processed Data")
-
-preview_df = df_final.head(1000)
-
-st.dataframe(preview_df, use_container_width=True)
-
-st.caption(f"Showing {len(preview_df)} of {len(df_final)} rows")
-
-# ---------- DOWNLOAD ----------
-csv = df_final.to_csv(index=False).encode('utf-8')
-
-st.download_button(
-    "⬇️ Download Full Data",
-    data=csv,
-    file_name="processed_data.csv",
-    mime="text/csv"
-)
+    st.download_button(
+        "Download Invalid Coordinates CSV",
+        invalid_df.to_csv(index=False),
+        "invalid_coordinates.csv",
+        "text/csv"
+    )
